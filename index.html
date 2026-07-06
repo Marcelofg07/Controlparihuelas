@@ -135,7 +135,7 @@ const ROLES = {
   despachos:    { label:'Despachos',              tabs:['solicitar','ingresar','movs','stock'] },
   picadora:     { label:'Op. Picadora',           tabs:['stockfis','recepcion'] },
   supervision:  { label:'Supervisión',            tabs:['solicitudes','ingresos','stock'] },
-  maestro:      { label:'Usuario Maestro',        tabs:['solicitudes','ingresos','stock','recepcion','db'] },
+  maestro:      { label:'Usuario Maestro',        tabs:['solicitar','ingresar','solicitudes','ingresos','stock','stockfis','recepcion','db'] },
 };
 const TAB_LABEL = {
   nueva:'Nueva solicitud', mis:'Mis solicitudes', stock:'Stock disponible',
@@ -166,7 +166,7 @@ const STOCK_INICIAL_SEED = [
 
 let STATE = {
   role:null, activeTab:null,
-  solicitudes:[], ingresos:[], stock:[], stockFisico:[], stockInicial:[], recepciones:[]
+  solicitudes:[], ingresos:[], stock:[], stockFisico:[], stockInicial:[], recepciones:[], ajustes:[], inventarios:[]
 };
 let unsubs = [];
 
@@ -223,6 +223,12 @@ function attachListeners(){
   unsubs.push(db.collection('stockInicial').onSnapshot(snap=>{
     STATE.stockInicial = snap.docs.map(d=>d.data()); recomputeStock(); render();
   }, ()=>setConn(false)));
+  unsubs.push(db.collection('ajustes').onSnapshot(snap=>{
+    STATE.ajustes = snap.docs.map(d=>d.data()); recomputeStock(); render();
+  }, ()=>setConn(false)));
+  unsubs.push(db.collection('inventarios').orderBy('fechaOrden','desc').onSnapshot(snap=>{
+    STATE.inventarios = snap.docs.map(d=>d.data()); render();
+  }, ()=>setConn(false)));
 }
 
 async function nextCorrelativo(tipo){
@@ -241,6 +247,7 @@ function recomputeStock(){
   STATE.stockInicial.forEach(r=>{ ensure(r.cliente,r.tipo,r.medida).stockActual += Number(r.cantidad)||0; });
   STATE.ingresos.forEach(i=>{ ensure(i.cliente,i.tipo,i.medida).stockActual += Number(i.cantidad)||0; });
   STATE.solicitudes.filter(s=>s.estado==='Recepcionada').forEach(s=>{ ensure(s.cliente,s.tipo,s.medida).stockActual -= Number(s.cantidadRecibida ?? s.cantidad)||0; });
+  STATE.ajustes.forEach(a=>{ ensure(a.cliente,a.tipo,a.medida).stockActual += Number(a.cantidad)||0; });
   STATE.stockFisico.forEach(f=>{ const row = ensure(f.cliente,f.tipo,f.medida); row.stockFisico = f.valor; row.fechaFisico = f.fecha; });
   STATE.stock = Object.values(map).sort((a,b)=>(a.cliente+a.tipo).localeCompare(b.cliente+b.tipo));
 }
@@ -304,10 +311,32 @@ async function recepcionarCorrelativo(correlativo, cantidadRecibida){
   await db.collection('recepciones').add(log);
   return log;
 }
-async function guardarStockFisico(k, valor){
-  const row = STATE.stock.find(r=>stockKey(r.cliente,r.tipo,r.medida)===k);
-  if(!row) return;
-  await db.collection('stockFisico').doc(k).set({ cliente:row.cliente, tipo:row.tipo, medida:row.medida, valor: valor===''?null:Number(valor), fecha:fechaHoy() });
+async function guardarYSincerarFisico(){
+  const inputs = document.querySelectorAll('[data-fisico]');
+  let cambios = 0;
+  for(const inp of inputs){
+    const k = inp.dataset.fisico;
+    const row = STATE.stock.find(r=>stockKey(r.cliente,r.tipo,r.medida)===k);
+    if(!row) continue;
+    const val = inp.value===''? null : Number(inp.value);
+    await db.collection('stockFisico').doc(k).set({ cliente:row.cliente, tipo:row.tipo, medida:row.medida, valor:val, fecha:fechaHoy() });
+    if(val===null) continue;
+    const antes = row.stockActual;
+    const diff = val - antes;
+    await db.collection('ajustes').doc(k).set({
+      cliente:row.cliente, tipo:row.tipo, medida:row.medida,
+      cantidad: firebase.firestore.FieldValue.increment(diff)
+    }, { merge:true });
+    await db.collection('inventarios').add({
+      fecha:fechaHoy(), fechaOrden:Date.now(),
+      cliente:row.cliente, tipo:row.tipo, medida:row.medida,
+      stockSistemaAntes:antes, stockFisico:val, diferencia:diff,
+      diferenciaPct: antes!==0 ? Number(((diff/antes)*100).toFixed(1)) : (val!==0 ? 100 : 0),
+      realizadoPor: ROLES[STATE.role].label
+    });
+    cambios++;
+  }
+  toast(cambios? 'Conteo físico guardado: el stock del sistema quedó actualizado ('+cambios+' línea(s))' : 'No había valores de conteo físico que guardar');
 }
 async function sembrarStockInicial(){
   const existing = await db.collection('stockInicial').limit(1).get();
@@ -479,8 +508,8 @@ function renderMovs(){
 function renderStockFisicoPicadora(){
   return `<div class="panel"><div class="toolbar"><h2 style="margin:0">Stock del sistema vs. stock físico</h2>
     <div class="actions" style="margin:0"><button class="btn secondary" id="btnImprimirHoja">Imprimir hoja de inventario</button>
-    <button class="btn" id="btnGuardarFisico">Guardar conteo físico</button></div></div>
-    <div class="desc">Ingresa el conteo físico por línea; la diferencia se calcula sola.</div>${tablaStock(STATE.stock,true)}</div>`;
+    <button class="btn" id="btnGuardarFisico">Guardar y actualizar stock según físico</button></div></div>
+    <div class="desc">Ingresa el conteo físico por línea. Al guardar, el "Stock actual" del sistema se ajusta para coincidir con lo contado, y queda registrado en la Base de datos maestra con la diferencia en cantidad y porcentaje.</div>${tablaStock(STATE.stock,true)}</div>`;
 }
 function renderRecepcionPicadora(){
   return `<div class="panel"><h2>Recepción de correlativos</h2><div class="desc">Ingresa el correlativo de la hoja que trae el montacarguista para validarlo contra el sistema.</div>
@@ -494,10 +523,20 @@ function renderRecepcionPicadora(){
     ${STATE.recepciones.length?`<table><thead><tr><th>Fecha</th><th>Correlativo</th><th>Resultado</th><th>Detalle</th></tr></thead>
     <tbody>${STATE.recepciones.map(r=>`<tr><td>${r.fecha}</td><td class="mono">${r.correlativo}</td><td>${tagEstado(r.resultado)}</td><td>${r.detalle}</td></tr>`).join('')}</tbody></table>`:'<div class="empty">Sin recepciones aún.</div>'}</div>`;
 }
+function renderInventariosHistorial(){
+  const rows = STATE.inventarios;
+  return `<div class="panel"><h2>Inventarios físicos (sincerados)</h2>
+    <div class="desc">Cada vez que Picadora o el Usuario Maestro guardan un conteo físico, queda un registro aquí con la variación respecto al stock del sistema en ese momento.</div>
+    ${rows.length? `<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Stock sistema (antes)</th><th>Stock físico</th><th>Diferencia</th><th>Diferencia %</th><th>Realizado por</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><td>${r.fecha}</td><td>${r.cliente}</td><td>${r.tipo}</td><td class="mono">${r.medida}</td><td class="mono">${r.stockSistemaAntes}</td><td class="mono">${r.stockFisico}</td>
+      <td class="${r.diferencia===0?'diff-ok':'diff-bad'}">${r.diferencia>0?'+':''}${r.diferencia}</td>
+      <td class="${r.diferencia===0?'diff-ok':'diff-bad'}">${r.diferenciaPct>0?'+':''}${r.diferenciaPct}%</td>
+      <td>${r.realizadoPor}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Aún no se ha sincerado ningún inventario físico.</div>'}</div>`;
+}
 function renderDBMaestra(){
   return `<div class="panel"><h2>Base de datos maestra</h2><div class="desc">Vista completa de todos los movimientos.</div>
     <div class="actions"><button class="btn secondary" id="btnSembrar">Cargar stock inicial (una sola vez)</button></div></div>
-    ${renderMisSolicitudes(null)}${renderMovs()}`;
+    ${renderInventariosHistorial()}${renderMisSolicitudes(null)}${renderMovs()}`;
 }
 
 function render(){
@@ -559,7 +598,9 @@ function bindTablaIngresos(){ document.querySelectorAll('[data-pdfing]').forEach
 function bindStockFisico(){
   const bi=document.getElementById('btnImprimirHoja'); if(bi) bi.addEventListener('click', imprimirHojaInventario);
   const bg=document.getElementById('btnGuardarFisico'); if(bg) bg.addEventListener('click', async ()=>{
-    const inputs=document.querySelectorAll('[data-fisico]'); for(const inp of inputs){ await guardarStockFisico(inp.dataset.fisico, inp.value); } toast('Conteo físico guardado'); });
+    bg.disabled = true; bg.textContent = 'Guardando…';
+    try{ await guardarYSincerarFisico(); } finally { bg.disabled=false; bg.textContent='Guardar y actualizar stock según físico'; }
+  });
 }
 function bindRecepcion(){
   const f=document.getElementById('formRecepcion'); if(!f) return;
