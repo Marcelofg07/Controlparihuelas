@@ -11,18 +11,18 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <style>
   :root{
-    --bg:#14181c; --panel:#1c2126; --panel-2:#232933; --line:#333c46; --ink:#eef1f4; --muted:#8f9aa6;
-    --amber:#f5a623; --amber-ink:#1a1400; --danger:#e5573f; --danger-bg:#3a2320; --success:#59b287; --success-bg:#17332a;
+    --bg:#f3f6fa; --panel:#ffffff; --panel-2:#eef4fa; --line:#d7e2ee; --ink:#0d2038; --muted:#5c7089;
+    --amber:#08B2FF; --amber-ink:#00205B; --danger:#c8402b; --danger-bg:#fbe7e4; --success:#1f8a5f; --success-bg:#e3f5ec;
     --mono:'IBM Plex Mono',monospace; --sans:'Inter',sans-serif; --disp:'Space Grotesk',sans-serif; --radius:3px;
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;}
-  header{background:linear-gradient(180deg,#1a1f24,#14181c);border-bottom:2px solid var(--amber);padding:14px 22px;
-    display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;position:sticky;top:0;z-index:50;}
+  header{background:#ffffff;border-bottom:3px solid var(--amber-ink);padding:14px 22px;
+    display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;position:sticky;top:0;z-index:50;box-shadow:0 2px 8px rgba(0,32,91,.06);}
   .brand{display:flex;align-items:center;gap:12px;}
-  .brand .mark{width:38px;height:38px;border:2px solid var(--amber);border-radius:2px;display:flex;align-items:center;justify-content:center;
-    font-family:var(--mono);font-weight:600;color:var(--amber);font-size:12px;}
-  .brand h1{font-family:var(--disp);font-size:17px;margin:0;}
+  .brand .mark{width:38px;height:38px;background:var(--amber-ink);border-radius:2px;display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-weight:600;color:#fff;font-size:12px;}
+  .brand h1{font-family:var(--disp);font-size:17px;margin:0;color:var(--amber-ink);}
   .brand span.sub{display:block;color:var(--muted);font-size:11px;font-family:var(--mono);letter-spacing:.5px;text-transform:uppercase;}
   select,input,textarea{background:var(--panel-2);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px;font-family:var(--sans);font-size:13px;width:100%;}
   select:focus,input:focus,textarea:focus{outline:2px solid var(--amber);outline-offset:1px;}
@@ -45,14 +45,14 @@
   .actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;}
   table{width:100%;border-collapse:collapse;font-size:13px;}
   thead th{text-align:left;font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);border-bottom:1px solid var(--line);padding:9px 10px;white-space:nowrap;}
-  tbody td{padding:9px 10px;border-bottom:1px solid #262c33;vertical-align:middle;}
-  tbody tr:hover{background:#20262c;}
+  tbody td{padding:9px 10px;border-bottom:1px solid #eaf0f6;vertical-align:middle;}
+  tbody tr:hover{background:#f3f9ff;}
   .mono{font-family:var(--mono);}
   .tag{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-family:var(--mono);font-weight:600;}
-  .tag.pend{background:#33301a;color:var(--amber);}
+  .tag.pend{background:#e6f6ff;color:#0077b3;}
   .tag.ok{background:var(--success-bg);color:var(--success);}
   .tag.cancel{background:var(--danger-bg);color:var(--danger);}
-  .tag.warn{background:#3a2320;color:#ffb199;}
+  .tag.warn{background:#fdf0dd;color:#b56a00;}
   .icon-x{cursor:pointer;color:var(--danger);font-weight:700;border:1px solid var(--danger);border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;background:transparent;}
   .icon-x:hover{background:var(--danger);color:#fff;}
   .empty{color:var(--muted);font-style:italic;padding:20px 0;text-align:center;}
@@ -60,7 +60,7 @@
   .diff-bad{color:var(--danger);font-weight:700;}
   .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
   .toolbar .stats{color:var(--muted);font-size:12px;font-family:var(--mono);}
-  .toast{position:fixed;bottom:20px;right:20px;background:var(--panel-2);border:1px solid var(--amber);color:var(--ink);padding:12px 18px;border-radius:6px;font-size:13px;z-index:200;box-shadow:0 6px 20px rgba(0,0,0,.4);max-width:340px;}
+  .toast{position:fixed;bottom:20px;right:20px;background:var(--panel);border:1px solid var(--amber);color:var(--ink);padding:12px 18px;border-radius:6px;font-size:13px;z-index:200;box-shadow:0 6px 20px rgba(0,32,91,.15);max-width:340px;}
   .toast.err{border-color:var(--danger);}
   #loginScreen{max-width:380px;margin:80px auto;padding:30px;background:var(--panel);border:1px solid var(--line);border-radius:8px;}
   #loginScreen h2{font-family:var(--disp);}
@@ -105,7 +105,6 @@
 
 <script>
 /* ============================= FIREBASE CONFIG ============================= */
-/* Pega aquí tu configuración (Firebase Console > Configuración del proyecto > tus apps > Web) */
 const firebaseConfig = {
   apiKey: "AIzaSyCXChfvIoLf0YkyzRdRmG3lrySDAYzHFZc",
   authDomain: "control-parihuelas-sw.firebaseapp.com",
@@ -120,16 +119,13 @@ const auth = firebase.auth();
 const db = firebase.firestore();
 
 /* ============================= CONTRASEÑAS POR ÁREA ============================= */
-/* Cambia estas contraseñas antes de publicar el sistema. No hay cuentas individuales:
-   cada área comparte una sola contraseña. Para cambiarla luego: edita este bloque y
-   vuelve a subir el archivo a Netlify (mismo sitio). */
 const ROLE_PASSWORDS = {
   sol_pluspack: 'pluspack2026',
   sol_matei:    'matei2026',
   despachos:    'despachos2026',
   picadora:     'picadora2026',
-  supervision:  'supervisores2026',
-  maestro:      'Marceliges0703#'
+  supervision:  'supervision2026',
+  maestro:      'maestro2026'
 };
 
 /* ============================= CONFIG APP ============================= */
@@ -148,7 +144,6 @@ const TAB_LABEL = {
   solicitudes:'Solicitudes', ingresos:'Ingresos', db:'Base de datos maestra'
 };
 
-/* Stock inicial (saldo de apertura) provisto por el cliente */
 const STOCK_INICIAL_SEED = [
   {cliente:'ETERNIT', tipo:'MADERA', medida:'1.10 X 1.50', cantidad:24},
   {cliente:'LINDLEY', tipo:'PLASTICO', medida:'1.00 X 1.20', cantidad:158},
@@ -175,7 +170,6 @@ let STATE = {
 };
 let unsubs = [];
 
-/* ============================= HELPERS ============================= */
 function pad(n,len){ return String(n).padStart(len,'0'); }
 function fechaHoy(){ return new Date().toLocaleString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
 function toast(msg,isErr){ const t=document.createElement('div'); t.className='toast'+(isErr?' err':''); t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),3200); }
@@ -183,7 +177,6 @@ function stockKey(c,t,m){ return (c+'|'+t+'|'+m).toLowerCase().trim(); }
 function comboKey(t,m){ return t+'|||'+m; }
 function setConn(ok){ document.getElementById('connDot').classList.toggle('off',!ok); document.getElementById('connText').textContent = ok? 'en línea' : 'sin conexión'; }
 
-/* ============================= LOGIN (áreas + contraseña, sin cuentas individuales) ============================= */
 const loginRoleSel = document.getElementById('loginRole');
 loginRoleSel.innerHTML = Object.entries(ROLES).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
 
@@ -208,14 +201,11 @@ document.getElementById('btnLogout').addEventListener('click', ()=>{
   document.getElementById('loginScreen').style.display='block';
 });
 
-/* Autenticación anónima solo para que las reglas de Firestore permitan lectura/escritura.
-   El control real de "quién entra a qué área" es la contraseña de arriba. */
 auth.onAuthStateChanged(user=>{
   if(!user){ auth.signInAnonymously().catch(err=>toast('Error de conexión: '+err.message, true)); return; }
   document.getElementById('loginScreen').style.display='block';
 });
 
-/* ============================= FIRESTORE REALTIME ============================= */
 function attachListeners(){
   setConn(true);
   unsubs.push(db.collection('solicitudes').orderBy('fechaOrden','desc').onSnapshot(snap=>{
@@ -245,7 +235,6 @@ async function nextCorrelativo(tipo){
   });
 }
 
-/* ============================= STOCK ENGINE ============================= */
 function recomputeStock(){
   const map = {};
   function ensure(c,t,m){ const k=stockKey(c,t,m); if(!map[k]) map[k]={cliente:c,tipo:t,medida:m,stockActual:0,stockFisico:null,fechaFisico:null}; return map[k]; }
@@ -256,7 +245,6 @@ function recomputeStock(){
   STATE.stock = Object.values(map).sort((a,b)=>(a.cliente+a.tipo).localeCompare(b.cliente+b.tipo));
 }
 
-/* Combos conocidos de Cliente -> [{tipo,medida}] para armar los desplegables dependientes */
 function combosPorCliente(){
   const map = {};
   function add(c,t,m){ if(!c||!t||!m) return; if(!map[c]) map[c]=new Set(); map[c].add(comboKey(t,m)); }
@@ -269,7 +257,6 @@ function combosPorCliente(){
 }
 function clientesUnicos(){ return Object.keys(combosPorCliente()); }
 
-/* ============================= CRUD ============================= */
 async function createSolicitud(data){
   const correlativo = await nextCorrelativo('SOL');
   const registro = { correlativo, fecha:fechaHoy(), fechaOrden:Date.now(),
@@ -331,7 +318,6 @@ async function sembrarStockInicial(){
   toast('Stock inicial cargado ('+STOCK_INICIAL_SEED.length+' líneas)');
 }
 
-/* ============================= PRINT ============================= */
 function printWindow(title, bodyHtml){
   const w = window.open('', '_blank');
   w.document.write(`<!DOCTYPE html><html><head><title>${title}</title><style>
@@ -374,9 +360,6 @@ function imprimirSolicitudesPendientes(){
     <table><tr><th>Correlativo</th><th>Fecha</th><th>Cliente</th><th>Solicitante</th><th>Tipo</th><th>Medidas</th><th>Cantidad</th></tr>${rows}</table>`);
 }
 
-/* ============================= WIDGET: Cliente + Tipo/Medida en cascada ============================= */
-/* Genera el HTML de los 2 campos dependientes. clientePrefijo permite bloquear el valor (no se usa para cliente real,
-   solo queda para futuros casos). idPrefix evita colisiones de id cuando hay más de un formulario en la página. */
 function widgetClienteCombo(idPrefix){
   const clientes = clientesUnicos();
   return `
@@ -437,7 +420,6 @@ function leerClienteCombo(idPrefix){
   return { cliente, tipo, medida };
 }
 
-/* ============================= RENDER ============================= */
 function tablaStock(rows, editableFisico){
   if(!rows.length) return '<div class="empty">Aún no hay stock registrado.</div>';
   return `<table><thead><tr><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Stock actual</th>${editableFisico?'<th>Stock físico</th><th>Diferencia</th>':''}</tr></thead><tbody>
@@ -518,7 +500,6 @@ function renderDBMaestra(){
     ${renderMisSolicitudes(null)}${renderMovs()}`;
 }
 
-/* ============================= MAIN RENDER ============================= */
 function render(){
   const role = ROLES[STATE.role];
   document.getElementById('roleBadge').textContent = role.label;
@@ -547,7 +528,6 @@ function render(){
   }
 }
 
-/* ============================= BINDINGS ============================= */
 function bindFormSolicitud(){
   const f=document.getElementById('formSolicitud'); if(!f) return;
   f.addEventListener('submit', async e=>{
@@ -589,7 +569,6 @@ function bindRecepcion(){
     f.reset(); });
 }
 
-/* ============================= ERRORES ============================= */
 window.addEventListener('error', e=>toast('Error: '+(e.message||e), true));
 window.addEventListener('unhandledrejection', e=>toast('Error: '+(e.reason && e.reason.message || e.reason), true));
 </script>
