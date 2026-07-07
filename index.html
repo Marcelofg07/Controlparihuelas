@@ -89,7 +89,7 @@
 <div id="appRoot" style="display:none">
   <header>
     <div class="brand">
-      <div class="mark">PYU</div>
+      <div class="mark">SW</div>
       <div><h1>Control de Parihuelas</h1><span class="sub">Patio &middot; En línea (Firebase)</span></div>
     </div>
     <div style="display:flex;align-items:center;gap:14px;">
@@ -215,7 +215,7 @@ function attachListeners(){
     STATE.ingresos = snap.docs.map(d=>d.data()); recomputeStock(); render();
   }, ()=>setConn(false)));
   unsubs.push(db.collection('recepciones').orderBy('fechaOrden','desc').onSnapshot(snap=>{
-    STATE.recepciones = snap.docs.map(d=>d.data()); render();
+    STATE.recepciones = snap.docs.map(d=>({id:d.id, ...d.data()})); render();
   }, ()=>setConn(false)));
   unsubs.push(db.collection('stockFisico').onSnapshot(snap=>{
     STATE.stockFisico = snap.docs.map(d=>d.data()); recomputeStock(); render();
@@ -227,7 +227,7 @@ function attachListeners(){
     STATE.ajustes = snap.docs.map(d=>d.data()); recomputeStock(); render();
   }, ()=>setConn(false)));
   unsubs.push(db.collection('inventarios').orderBy('fechaOrden','desc').onSnapshot(snap=>{
-    STATE.inventarios = snap.docs.map(d=>d.data()); render();
+    STATE.inventarios = snap.docs.map(d=>({id:d.id, ...d.data()})); render();
   }, ()=>setConn(false)));
 }
 
@@ -319,7 +319,6 @@ async function guardarYSincerarFisico(){
     const row = STATE.stock.find(r=>stockKey(r.cliente,r.tipo,r.medida)===k);
     if(!row) continue;
     const val = inp.value===''? null : Number(inp.value);
-    await db.collection('stockFisico').doc(k).set({ cliente:row.cliente, tipo:row.tipo, medida:row.medida, valor:val, fecha:fechaHoy() });
     if(val===null) continue;
     const antes = row.stockActual;
     const diff = val - antes;
@@ -334,9 +333,12 @@ async function guardarYSincerarFisico(){
       diferenciaPct: antes!==0 ? Number(((diff/antes)*100).toFixed(1)) : (val!==0 ? 100 : 0),
       realizadoPor: ROLES[STATE.role].label
     });
+    /* Ya se aplicó el conteo al stock: se limpia para que no quede "pegado" en pantalla */
+    await db.collection('stockFisico').doc(k).set({ cliente:row.cliente, tipo:row.tipo, medida:row.medida, valor:null, fecha:fechaHoy() });
+    inp.value = '';
     cambios++;
   }
-  toast(cambios? 'Conteo físico guardado: el stock del sistema quedó actualizado ('+cambios+' línea(s))' : 'No había valores de conteo físico que guardar');
+  toast(cambios? 'Stock actualizado con el conteo físico ('+cambios+' línea(s)). El campo de stock físico se reinició.' : 'No había valores de conteo físico que guardar');
 }
 async function sembrarStockInicial(){
   const existing = await db.collection('stockInicial').limit(1).get();
@@ -527,16 +529,117 @@ function renderInventariosHistorial(){
   const rows = STATE.inventarios;
   return `<div class="panel"><h2>Inventarios físicos (sincerados)</h2>
     <div class="desc">Cada vez que Picadora o el Usuario Maestro guardan un conteo físico, queda un registro aquí con la variación respecto al stock del sistema en ese momento.</div>
-    ${rows.length? `<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Stock sistema (antes)</th><th>Stock físico</th><th>Diferencia</th><th>Diferencia %</th><th>Realizado por</th></tr></thead>
+    ${rows.length? `<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Stock sistema (antes)</th><th>Stock físico</th><th>Diferencia</th><th>Diferencia %</th><th>Realizado por</th><th></th></tr></thead>
     <tbody>${rows.map(r=>`<tr><td>${r.fecha}</td><td>${r.cliente}</td><td>${r.tipo}</td><td class="mono">${r.medida}</td><td class="mono">${r.stockSistemaAntes}</td><td class="mono">${r.stockFisico}</td>
       <td class="${r.diferencia===0?'diff-ok':'diff-bad'}">${r.diferencia>0?'+':''}${r.diferencia}</td>
       <td class="${r.diferencia===0?'diff-ok':'diff-bad'}">${r.diferenciaPct>0?'+':''}${r.diferenciaPct}%</td>
-      <td>${r.realizadoPor}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">Aún no se ha sincerado ningún inventario físico.</div>'}</div>`;
+      <td>${r.realizadoPor}</td>
+      <td><span class="icon-x" data-del-inv="${r.id}">×</span></td></tr>`).join('')}</tbody></table>` : '<div class="empty">Aún no se ha sincerado ningún inventario físico.</div>'}</div>`;
+}
+
+const SOL_ESTADOS = ['Pendiente','Recepcionada','Cancelada'];
+function renderSolicitudesEditable(){
+  const rows = STATE.solicitudes;
+  return `<div class="panel"><div class="toolbar"><h2 style="margin:0">Solicitudes — edición total</h2><span class="stats">${rows.length} registro(s)</span></div>
+    <div class="desc">Cambia cualquier campo y presiona "Guardar" en esa fila. El botón × elimina el registro por completo (no se puede deshacer).</div>
+    ${rows.length? `<table><thead><tr><th>Correlativo</th><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Cant.</th><th>Cant. recibida</th><th>Solicitante</th><th>Estado</th><th></th></tr></thead>
+    <tbody>${rows.map(s=>`<tr data-sol="${s.correlativo}">
+      <td class="mono">${s.correlativo}</td>
+      <td>${s.fecha}</td>
+      <td><input data-f="cliente" value="${s.cliente}" style="min-width:140px"></td>
+      <td><input data-f="tipo" value="${s.tipo}" style="min-width:90px"></td>
+      <td><input data-f="medida" value="${s.medida}" class="mono" style="min-width:100px"></td>
+      <td><input data-f="cantidad" type="number" value="${s.cantidad}" style="width:70px"></td>
+      <td><input data-f="cantidadRecibida" type="number" value="${s.cantidadRecibida??''}" style="width:70px"></td>
+      <td><select data-f="solicitante">${['Pluspack','Matei','Despachos'].map(o=>`<option ${s.solicitante===o?'selected':''}>${o}</option>`).join('')}</select></td>
+      <td><select data-f="estado">${SOL_ESTADOS.map(e=>`<option ${s.estado===e?'selected':''}>${e}</option>`).join('')}</select></td>
+      <td style="white-space:nowrap"><button class="btn secondary small" data-guardar-sol="${s.correlativo}">Guardar</button> <span class="icon-x" data-del-sol="${s.correlativo}" title="Eliminar">×</span></td>
+    </tr>`).join('')}</tbody></table>` : '<div class="empty">No hay solicitudes registradas.</div>'}</div>`;
+}
+function renderIngresosEditable(){
+  const rows = STATE.ingresos;
+  return `<div class="panel"><div class="toolbar"><h2 style="margin:0">Ingresos — edición total</h2><span class="stats">${rows.length} registro(s)</span></div>
+    <div class="desc">Cambia cualquier campo y presiona "Guardar" en esa fila. El botón × elimina el registro por completo (no se puede deshacer).</div>
+    ${rows.length? `<table><thead><tr><th>Correlativo</th><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Cant.</th><th>Guía</th><th></th></tr></thead>
+    <tbody>${rows.map(i=>`<tr data-ing="${i.correlativo}">
+      <td class="mono">${i.correlativo}</td>
+      <td>${i.fecha}</td>
+      <td><input data-f="cliente" value="${i.cliente}" style="min-width:140px"></td>
+      <td><input data-f="tipo" value="${i.tipo}" style="min-width:90px"></td>
+      <td><input data-f="medida" value="${i.medida}" class="mono" style="min-width:100px"></td>
+      <td><input data-f="cantidad" type="number" value="${i.cantidad}" style="width:70px"></td>
+      <td><input data-f="guia" value="${i.guia}" style="min-width:120px"></td>
+      <td style="white-space:nowrap"><button class="btn secondary small" data-guardar-ing="${i.correlativo}">Guardar</button> <span class="icon-x" data-del-ing="${i.correlativo}" title="Eliminar">×</span></td>
+    </tr>`).join('')}</tbody></table>` : '<div class="empty">No hay ingresos registrados.</div>'}</div>`;
+}
+const REC_RESULTADOS = ['OK','Discrepancia','No encontrado','Cancelada','Duplicado'];
+function renderRecepcionesEditable(){
+  const rows = STATE.recepciones;
+  return `<div class="panel"><div class="toolbar"><h2 style="margin:0">Historial de recepciones — edición total</h2><span class="stats">${rows.length} registro(s)</span></div>
+    <div class="desc">Corrige el resultado o el detalle de una recepción, o elimínala si fue un error de digitación.</div>
+    ${rows.length? `<table><thead><tr><th>Fecha</th><th>Correlativo</th><th>Resultado</th><th>Detalle</th><th></th></tr></thead>
+    <tbody>${rows.map(r=>`<tr data-rec="${r.id}">
+      <td>${r.fecha}</td><td class="mono">${r.correlativo}</td>
+      <td><select data-f="resultado">${REC_RESULTADOS.map(e=>`<option ${r.resultado===e?'selected':''}>${e}</option>`).join('')}</select></td>
+      <td><input data-f="detalle" value="${r.detalle}" style="min-width:220px"></td>
+      <td style="white-space:nowrap"><button class="btn secondary small" data-guardar-rec="${r.id}">Guardar</button> <span class="icon-x" data-del-rec="${r.id}" title="Eliminar">×</span></td>
+    </tr>`).join('')}</tbody></table>` : '<div class="empty">Sin recepciones aún.</div>'}</div>`;
 }
 function renderDBMaestra(){
-  return `<div class="panel"><h2>Base de datos maestra</h2><div class="desc">Vista completa de todos los movimientos.</div>
+  return `<div class="panel"><h2>Base de datos maestra</h2><div class="desc">Control total: edita o elimina cualquier registro. Los cambios se aplican de inmediato para todos.</div>
     <div class="actions"><button class="btn secondary" id="btnSembrar">Cargar stock inicial (una sola vez)</button></div></div>
-    ${renderInventariosHistorial()}${renderMisSolicitudes(null)}${renderMovs()}`;
+    ${renderInventariosHistorial()}${renderSolicitudesEditable()}${renderIngresosEditable()}${renderRecepcionesEditable()}`;
+}
+function bindDBMaestra(){
+  document.querySelectorAll('[data-guardar-sol]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const correlativo = btn.dataset.guardarSol;
+    const tr = btn.closest('tr');
+    const get = f=>tr.querySelector(`[data-f="${f}"]`).value;
+    const cantRec = get('cantidadRecibida');
+    await db.collection('solicitudes').doc(correlativo).update({
+      cliente:get('cliente').trim(), tipo:get('tipo').trim(), medida:get('medida').trim(),
+      cantidad:Number(get('cantidad')), cantidadRecibida: cantRec===''? null : Number(cantRec),
+      solicitante:get('solicitante'), estado:get('estado')
+    });
+    toast('Solicitud '+correlativo+' actualizada');
+  }));
+  document.querySelectorAll('[data-del-sol]').forEach(el=>el.addEventListener('click', async ()=>{
+    if(!confirm('¿Eliminar definitivamente la solicitud '+el.dataset.delSol+'? No se puede deshacer.')) return;
+    await db.collection('solicitudes').doc(el.dataset.delSol).delete();
+    toast('Solicitud eliminada');
+  }));
+  document.querySelectorAll('[data-guardar-ing]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const correlativo = btn.dataset.guardarIng;
+    const tr = btn.closest('tr');
+    const get = f=>tr.querySelector(`[data-f="${f}"]`).value;
+    await db.collection('ingresos').doc(correlativo).update({
+      cliente:get('cliente').trim(), tipo:get('tipo').trim(), medida:get('medida').trim(),
+      cantidad:Number(get('cantidad')), guia:get('guia').trim()
+    });
+    toast('Ingreso '+correlativo+' actualizado');
+  }));
+  document.querySelectorAll('[data-del-ing]').forEach(el=>el.addEventListener('click', async ()=>{
+    if(!confirm('¿Eliminar definitivamente el ingreso '+el.dataset.delIng+'? No se puede deshacer.')) return;
+    await db.collection('ingresos').doc(el.dataset.delIng).delete();
+    toast('Ingreso eliminado');
+  }));
+  document.querySelectorAll('[data-guardar-rec]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const id = btn.dataset.guardarRec;
+    const tr = btn.closest('tr');
+    const get = f=>tr.querySelector(`[data-f="${f}"]`).value;
+    await db.collection('recepciones').doc(id).update({ resultado:get('resultado'), detalle:get('detalle').trim() });
+    toast('Recepción actualizada');
+  }));
+  document.querySelectorAll('[data-del-rec]').forEach(el=>el.addEventListener('click', async ()=>{
+    if(!confirm('¿Eliminar esta recepción del historial? No se puede deshacer.')) return;
+    await db.collection('recepciones').doc(el.dataset.delRec).delete();
+    toast('Recepción eliminada');
+  }));
+  document.querySelectorAll('[data-del-inv]').forEach(el=>el.addEventListener('click', async ()=>{
+    if(!confirm('¿Eliminar este registro de inventario del historial? No se puede deshacer.')) return;
+    await db.collection('inventarios').doc(el.dataset.delInv).delete();
+    toast('Registro de inventario eliminado');
+  }));
 }
 
 function render(){
@@ -562,7 +665,7 @@ function render(){
       document.getElementById('btnImprimirPend2').addEventListener('click', imprimirSolicitudesPendientes);
       bindTablaSolicitudes(); break;
     case 'ingresos': content.innerHTML=renderMovs(); bindTablaIngresos(); break;
-    case 'db': content.innerHTML=renderDBMaestra(); bindTablaSolicitudes(); bindTablaIngresos();
+    case 'db': content.innerHTML=renderDBMaestra(); bindDBMaestra();
       document.getElementById('btnSembrar').addEventListener('click', sembrarStockInicial); break;
   }
 }
