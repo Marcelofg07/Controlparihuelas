@@ -122,6 +122,7 @@ const db = firebase.firestore();
 const ROLE_PASSWORDS = {
   sol_pluspack: 'pluspack2026',
   sol_matei:    'matei2026',
+  sw_produccion:'produccion2026',
   despachos:    'despachos2026',
   picadora:     'picadora2026',
   supervision:  'supervision2026',
@@ -132,6 +133,7 @@ const ROLE_PASSWORDS = {
 const ROLES = {
   sol_pluspack: { label:'Solicitante · Pluspack', solicitanteFijo:'Pluspack', tabs:['nueva','mis','stock'] },
   sol_matei:    { label:'Solicitante · Matei',    solicitanteFijo:'Matei',    tabs:['nueva','mis','stock'] },
+  sw_produccion:{ label:'SW Producción',          solicitanteOpciones:['HYCORR1','Planchas','Particiones'], tabs:['nueva','mis','stock'] },
   despachos:    { label:'Despachos',              tabs:['ingresar','movs','stock'] },
   picadora:     { label:'Op. Picadora',           tabs:['stockfis','recepcion','solicitudes','ingresos'] },
   supervision:  { label:'Supervisión',            tabs:['solicitudes','ingresos','stock'] },
@@ -466,8 +468,8 @@ function tablaStock(rows, editableFisico){
 }
 function tagEstado(s){ const map={Pendiente:'pend',Recepcionada:'ok',Cancelada:'cancel',Discrepancia:'warn'}; return `<span class="tag ${map[s]||'pend'}">${s}</span>`; }
 
-function renderNuevaSolicitud(solicitanteFijo){
-  const opciones=['Pluspack','Matei','Despachos'];
+function renderNuevaSolicitud(solicitanteFijo, solicitanteOpciones){
+  const opciones = solicitanteOpciones || ['Pluspack','Matei','Despachos'];
   return `<div class="panel"><h2>Nueva solicitud de parihuelas</h2><div class="desc">Fecha y correlativo se generan automáticamente al guardar. Elige el cliente y luego el tipo/medida correspondiente.</div>
     <form id="formSolicitud"><div class="grid">
       <div><label>Fecha</label><input type="text" value="${fechaHoy()}" disabled></div>
@@ -481,8 +483,13 @@ function renderNuevaSolicitud(solicitanteFijo){
 }
 function renderMisSolicitudes(filtroSolicitante){
   let rows = STATE.solicitudes.slice();
-  if(filtroSolicitante) rows = rows.filter(s=>s.solicitante===filtroSolicitante);
-  return `<div class="panel"><div class="toolbar"><h2 style="margin:0">${filtroSolicitante?'Mis solicitudes — '+filtroSolicitante:'Solicitudes registradas'}</h2><span class="stats">${rows.length} registro(s)</span></div>
+  if(filtroSolicitante){
+    rows = Array.isArray(filtroSolicitante)
+      ? rows.filter(s=>filtroSolicitante.includes(s.solicitante))
+      : rows.filter(s=>s.solicitante===filtroSolicitante);
+  }
+  const titulo = Array.isArray(filtroSolicitante) ? filtroSolicitante.join(' / ') : filtroSolicitante;
+  return `<div class="panel"><div class="toolbar"><h2 style="margin:0">${filtroSolicitante?'Mis solicitudes — '+titulo:'Solicitudes registradas'}</h2><span class="stats">${rows.length} registro(s)</span></div>
     ${rows.length?`<table><thead><tr><th>Fecha</th><th>Correlativo</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Cant.</th><th>Solicitante</th><th>Estado</th><th>PDF</th><th></th></tr></thead>
     <tbody>${rows.map(s=>`<tr><td>${s.fecha}</td><td class="mono">${s.correlativo}</td><td>${s.cliente}</td><td>${s.tipo}</td><td class="mono">${s.medida}</td><td class="mono">${s.cantidad}</td><td>${s.solicitante}</td><td>${tagEstado(s.estado)}</td>
       <td><button class="btn secondary small" data-pdf="${s.correlativo}">Ver PDF</button></td>
@@ -652,8 +659,8 @@ function render(){
   const content = document.getElementById('content');
   const solicitanteFijo = role.solicitanteFijo || null;
   switch(STATE.activeTab){
-    case 'nueva': content.innerHTML=renderNuevaSolicitud(solicitanteFijo); bindFormSolicitud(); bindWidgetClienteCombo('sol'); break;
-    case 'mis': content.innerHTML=renderMisSolicitudes(solicitanteFijo); bindTablaSolicitudes(); break;
+    case 'nueva': content.innerHTML=renderNuevaSolicitud(solicitanteFijo, role.solicitanteOpciones); bindFormSolicitud(); bindWidgetClienteCombo('sol'); break;
+    case 'mis': content.innerHTML=renderMisSolicitudes(solicitanteFijo || role.solicitanteOpciones || null); bindTablaSolicitudes(); break;
     case 'solicitar': content.innerHTML=renderNuevaSolicitud(null); bindFormSolicitud(); bindWidgetClienteCombo('sol'); break;
     case 'ingresar': content.innerHTML=renderIngresar(); bindFormIngreso(); bindWidgetClienteCombo('ing'); break;
     case 'movs': content.innerHTML=renderMovs(); bindTablaIngresos(); break;
