@@ -670,6 +670,10 @@ function render(){
   }
 }
 
+function stockDisponible(cliente, tipo, medida){
+  const row = STATE.stock.find(r=>stockKey(r.cliente,r.tipo,r.medida)===stockKey(cliente,tipo,medida));
+  return row ? Number(row.stockActual)||0 : 0;
+}
 function bindFormSolicitud(){
   const f=document.getElementById('formSolicitud'); if(!f) return;
   f.addEventListener('submit', async e=>{
@@ -677,7 +681,13 @@ function bindFormSolicitud(){
     const fd=new FormData(f);
     const {cliente, tipo, medida} = leerClienteCombo('sol');
     if(!cliente || !tipo || !medida){ toast('Completa cliente, tipo y medida', true); return; }
-    await createSolicitud({ tipo, medida, cliente, cantidad:fd.get('cantidad'), solicitante:fd.get('solicitanteFijo')||fd.get('solicitante') });
+    const cantidad = Number(fd.get('cantidad'));
+    const disponible = stockDisponible(cliente, tipo, medida);
+    if(cantidad > disponible){
+      toast('No hay stock suficiente. Stock actual: '+disponible, true);
+      return;
+    }
+    await createSolicitud({ tipo, medida, cliente, cantidad, solicitante:fd.get('solicitanteFijo')||fd.get('solicitante') });
     f.reset(); bindWidgetClienteCombo('sol');
   });
 }
