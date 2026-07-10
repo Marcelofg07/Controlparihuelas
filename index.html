@@ -134,7 +134,7 @@ const ROLES = {
   sol_pluspack: { label:'Solicitante · Pluspack', solicitanteFijo:'Pluspack', tabs:['nueva','mis','stock'] },
   sol_matei:    { label:'Solicitante · Matei',    solicitanteFijo:'Matei',    tabs:['nueva','mis','stock'] },
   sw_produccion:{ label:'SW Producción',          solicitanteOpciones:['HYCORR1','Planchas','Particiones'], tabs:['nueva','mis','stock'] },
-  despachos:    { label:'Despachos',              tabs:['ingresar','movs','stock'] },
+  despachos:    { label:'Despachos',              solicitanteFijo:'Despachos', tabs:['solicitar','ingresar','mis','movs','stock'] },
   picadora:     { label:'Op. Picadora',           tabs:['stockfis','recepcion','solicitudes','ingresos'] },
   supervision:  { label:'Supervisión',            tabs:['solicitudes','ingresos','stock'] },
   maestro:      { label:'Usuario Maestro',        tabs:['solicitar','ingresar','solicitudes','ingresos','stock','stockfis','recepcion','db'] },
@@ -661,7 +661,7 @@ function render(){
   switch(STATE.activeTab){
     case 'nueva': content.innerHTML=renderNuevaSolicitud(solicitanteFijo, role.solicitanteOpciones); bindFormSolicitud(); bindWidgetClienteCombo('sol'); break;
     case 'mis': content.innerHTML=renderMisSolicitudes(solicitanteFijo || role.solicitanteOpciones || null); bindTablaSolicitudes(); break;
-    case 'solicitar': content.innerHTML=renderNuevaSolicitud(null); bindFormSolicitud(); bindWidgetClienteCombo('sol'); break;
+    case 'solicitar': content.innerHTML=renderNuevaSolicitud(solicitanteFijo, role.solicitanteOpciones); bindFormSolicitud(); bindWidgetClienteCombo('sol'); break;
     case 'ingresar': content.innerHTML=renderIngresar(); bindFormIngreso(); bindWidgetClienteCombo('ing'); break;
     case 'movs': content.innerHTML=renderMovs(); bindTablaIngresos(); break;
     case 'stock': content.innerHTML=renderStockPanel(); break;
