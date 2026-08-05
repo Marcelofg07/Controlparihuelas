@@ -133,7 +133,7 @@ const ROLE_PASSWORDS = {
 const ROLES = {
   sol_pluspack: { label:'Solicitante · Pluspack', solicitanteFijo:'Pluspack', tabs:['nueva','mis','stock'] },
   sol_synergia: { label:'Solicitante · Synergia', solicitanteFijo:'Synergia', tabs:['nueva','mis','stock'] },
-  sw_produccion:{ label:'SW Producción',          solicitanteOpciones:['HYCORR1','Planchas','Particiones'], tabs:['nueva','mis','stock'] },
+  sw_produccion:{ label:'SW Producción',          solicitanteOpciones:['HYCORR1','Planchas','Particiones','HYCORR2','MOSCA MESSERSI'], tabs:['nueva','mis','stock'] },
   despachos:    { label:'Despachos',              solicitanteFijo:'Despachos', tabs:['solicitar','mis','movs','stock'] },
   picadora:     { label:'Op. Picadora',           tabs:['stockfis','recepcion','solicitudes','ingresos'] },
   supervision:  { label:'Supervisión',            tabs:['solicitudes','ingresos','stock'] },
@@ -470,26 +470,38 @@ function tagEstado(s){ const map={Pendiente:'pend',Recepcionada:'ok',Cancelada:'
 
 function renderNuevaSolicitud(solicitanteFijo, solicitanteOpciones){
   const opciones = solicitanteOpciones || ['Pluspack','Synergia','Despachos'];
+  const permiteNueva = !solicitanteFijo && !!solicitanteOpciones;
   return `<div class="panel"><h2>Nueva solicitud de parihuelas</h2><div class="desc">Fecha y correlativo se generan automáticamente al guardar. Elige el cliente y luego el tipo/medida correspondiente.</div>
     <form id="formSolicitud"><div class="grid">
       <div><label>Fecha</label><input type="text" value="${fechaHoy()}" disabled></div>
       <div><label>Correlativo</label><input type="text" value="Se genera al guardar" disabled></div>
       ${widgetClienteCombo('sol')}
       <div><label>Cantidad</label><input name="cantidad" type="number" min="1" required></div>
-      <div><label>Solicitante</label><select name="solicitante" ${solicitanteFijo?'disabled':''}>
-        ${opciones.map(o=>`<option ${solicitanteFijo===o?'selected':''}>${o}</option>`).join('')}</select>
-        ${solicitanteFijo?`<input type="hidden" name="solicitanteFijo" value="${solicitanteFijo}">`:''}</div>
+      <div><label>Solicitante</label><select name="solicitante" id="selSolicitante" ${solicitanteFijo?'disabled':''}>
+        ${opciones.map(o=>`<option ${solicitanteFijo===o?'selected':''}>${o}</option>`).join('')}
+        ${permiteNueva?`<option value="__nueva__">+ Nueva máquina/área…</option>`:''}
+        </select>
+        ${solicitanteFijo?`<input type="hidden" name="solicitanteFijo" value="${solicitanteFijo}">`:''}
+        ${permiteNueva?`<input type="text" id="solicitanteNuevo" placeholder="Nombre de la nueva máquina/área" style="display:none;margin-top:6px">`:''}
+      </div>
     </div><div class="actions"><button class="btn" type="submit">Generar solicitud</button></div></form></div>`;
 }
-function renderMisSolicitudes(filtroSolicitante){
+function renderMisSolicitudes(filtro){
   let rows = STATE.solicitudes.slice();
-  if(filtroSolicitante){
-    rows = Array.isArray(filtroSolicitante)
-      ? rows.filter(s=>filtroSolicitante.includes(s.solicitante))
-      : rows.filter(s=>s.solicitante===filtroSolicitante);
+  let titulo = null;
+  if(filtro){
+    if(typeof filtro === 'object' && filtro.creadoPor){
+      rows = rows.filter(s=>s.creadoPor===filtro.creadoPor);
+      titulo = filtro.creadoPor;
+    } else if(Array.isArray(filtro)){
+      rows = rows.filter(s=>filtro.includes(s.solicitante));
+      titulo = filtro.join(' / ');
+    } else {
+      rows = rows.filter(s=>s.solicitante===filtro);
+      titulo = filtro;
+    }
   }
-  const titulo = Array.isArray(filtroSolicitante) ? filtroSolicitante.join(' / ') : filtroSolicitante;
-  return `<div class="panel"><div class="toolbar"><h2 style="margin:0">${filtroSolicitante?'Mis solicitudes — '+titulo:'Solicitudes registradas'}</h2><span class="stats">${rows.length} registro(s)</span></div>
+  return `<div class="panel"><div class="toolbar"><h2 style="margin:0">${titulo?'Mis solicitudes — '+titulo:'Solicitudes registradas'}</h2><span class="stats">${rows.length} registro(s)</span></div>
     ${rows.length?`<table><thead><tr><th>Fecha</th><th>Correlativo</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Cant.</th><th>Solicitante</th><th>Estado</th><th>PDF</th><th></th></tr></thead>
     <tbody>${rows.map(s=>`<tr><td>${s.fecha}</td><td class="mono">${s.correlativo}</td><td>${s.cliente}</td><td>${s.tipo}</td><td class="mono">${s.medida}</td><td class="mono">${s.cantidad}</td><td>${s.solicitante}</td><td>${tagEstado(s.estado)}</td>
       <td><button class="btn secondary small" data-pdf="${s.correlativo}">Ver PDF</button></td>
@@ -660,7 +672,7 @@ function render(){
   const solicitanteFijo = role.solicitanteFijo || null;
   switch(STATE.activeTab){
     case 'nueva': content.innerHTML=renderNuevaSolicitud(solicitanteFijo, role.solicitanteOpciones); bindFormSolicitud(); bindWidgetClienteCombo('sol'); break;
-    case 'mis': content.innerHTML=renderMisSolicitudes(solicitanteFijo || role.solicitanteOpciones || null); bindTablaSolicitudes(); break;
+    case 'mis': content.innerHTML=renderMisSolicitudes(solicitanteFijo || (role.solicitanteOpciones? {creadoPor: role.label} : null)); bindTablaSolicitudes(); break;
     case 'solicitar': content.innerHTML=renderNuevaSolicitud(solicitanteFijo, role.solicitanteOpciones); bindFormSolicitud(); bindWidgetClienteCombo('sol'); break;
     case 'ingresar': content.innerHTML=renderIngresar(); bindFormIngreso(); bindWidgetClienteCombo('ing'); break;
     case 'movs': content.innerHTML=renderMovs(); bindTablaIngresos(); break;
@@ -683,18 +695,30 @@ function stockDisponible(cliente, tipo, medida){
 }
 function bindFormSolicitud(){
   const f=document.getElementById('formSolicitud'); if(!f) return;
+  const selSolicitante = document.getElementById('selSolicitante');
+  const inpSolicitanteNuevo = document.getElementById('solicitanteNuevo');
+  if(selSolicitante && inpSolicitanteNuevo){
+    selSolicitante.addEventListener('change', ()=>{
+      inpSolicitanteNuevo.style.display = selSolicitante.value==='__nueva__' ? 'block' : 'none';
+    });
+  }
   f.addEventListener('submit', async e=>{
     e.preventDefault();
     const fd=new FormData(f);
     const {cliente, tipo, medida} = leerClienteCombo('sol');
     if(!cliente || !tipo || !medida){ toast('Completa cliente, tipo y medida', true); return; }
+    let solicitante = fd.get('solicitanteFijo') || fd.get('solicitante');
+    if(solicitante==='__nueva__'){
+      solicitante = (inpSolicitanteNuevo?.value || '').trim();
+      if(!solicitante){ toast('Escribe el nombre de la nueva máquina/área', true); return; }
+    }
     const cantidad = Number(fd.get('cantidad'));
     const disponible = stockDisponible(cliente, tipo, medida);
     if(cantidad > disponible){
       toast('No hay stock suficiente. Stock actual: '+disponible, true);
       return;
     }
-    await createSolicitud({ tipo, medida, cliente, cantidad, solicitante:fd.get('solicitanteFijo')||fd.get('solicitante') });
+    await createSolicitud({ tipo, medida, cliente, cantidad, solicitante });
     f.reset(); bindWidgetClienteCombo('sol');
   });
 }
