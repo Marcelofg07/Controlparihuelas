@@ -607,6 +607,15 @@ function renderRecepcionesEditable(){
     </tr>`).join('')}</tbody></table>` : '<div class="empty">Sin recepciones aún.</div>'}</div>`;
 }
 /* ============================= REPORTES ============================= */
+function parseFechaStr(str){
+  if(!str) return null;
+  const datePart = str.split(',')[0].trim();
+  const partes = datePart.split('/');
+  if(partes.length!==3) return null;
+  const [d,m,y] = partes.map(Number);
+  if(!d||!m||!y) return null;
+  return { dia:d, mes:m, anio:y };
+}
 function obtenerAniosDisponibles(){
   const anios = new Set([new Date().getFullYear()]);
   STATE.ingresos.forEach(i=>{ const f=parseFechaStr(i.fecha); if(f) anios.add(f.anio); });
