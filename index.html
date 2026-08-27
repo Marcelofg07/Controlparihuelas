@@ -136,14 +136,15 @@ const ROLES = {
   despachos:    { label:'Despachos',              solicitanteFijo:'Despachos', tabs:['solicitar','mis','movs','stock'] },
   picadora:     { label:'Op. Picadora',           tabs:['stockfis','recepcion','solicitudes','ingresos'] },
   supervision:  { label:'Supervisión',            tabs:['solicitudes','ingresos','stock'] },
-  ventas:       { label:'Ventas',                 tabs:['stock','ingresos','solicitudes'] },
-  maestro:      { label:'Usuario Maestro',        tabs:['solicitar','ingresar','solicitudes','ingresos','stock','stockfis','recepcion','db'] },
+  ventas:       { label:'Ventas',                 tabs:['stock','ingresos','solicitudes','reportes'] },
+  maestro:      { label:'Usuario Maestro',        tabs:['solicitar','ingresar','solicitudes','ingresos','stock','stockfis','recepcion','reportes','db'] },
 };
 const TAB_LABEL = {
   nueva:'Nueva solicitud', mis:'Mis solicitudes', stock:'Stock disponible',
   solicitar:'Solicitar parihuelas', ingresar:'Ingresar parihuelas', movs:'Mis movimientos',
   stockfis:'Stock físico', recepcion:'Recepción de correlativos',
-  solicitudes:'Solicitudes', ingresos:'Ingresos', db:'Base de datos maestra'
+  solicitudes:'Solicitudes', ingresos:'Ingresos', db:'Base de datos maestra',
+  reportes:'Generador de reportes'
 };
 
 const STOCK_INICIAL_SEED = [
@@ -604,6 +605,162 @@ function renderRecepcionesEditable(){
       <td style="white-space:nowrap"><button class="btn secondary small" data-guardar-rec="${r.id}">Guardar</button> <span class="icon-x" data-del-rec="${r.id}" title="Eliminar">×</span></td>
     </tr>`).join('')}</tbody></table>` : '<div class="empty">Sin recepciones aún.</div>'}</div>`;
 }
+/* ============================= REPORTES ============================= */
+function parseFechaStr(str){
+  if(!str) return null;
+  const datePart = str.split(',')[0].trim();
+  const partes = datePart.split('/');
+  if(partes.length!==3) return null;
+  const [d,m,y] = partes.map(Number);
+  if(!d||!m||!y) return null;
+  return { dia:d, mes:m, anio:y };
+}
+function matchPeriodo(fechaObj, tipo, valor){
+  if(tipo==='todos' || !valor) return true;
+  if(!fechaObj) return false;
+  if(tipo==='dia'){
+    const [y,m,d] = valor.split('-').map(Number);
+    return fechaObj.dia===d && fechaObj.mes===m && fechaObj.anio===y;
+  }
+  if(tipo==='mes'){
+    const [y,m] = valor.split('-').map(Number);
+    return fechaObj.mes===m && fechaObj.anio===y;
+  }
+  if(tipo==='anio'){
+    return fechaObj.anio===Number(valor);
+  }
+  return true;
+}
+function generarReporte(filtros){
+  const {cliente, periodoTipo, periodoValor, tipoMov} = filtros;
+  let ingresosFiltrados = [], consumosFiltrados = [];
+  if(tipoMov==='ingresos' || tipoMov==='ambos'){
+    ingresosFiltrados = STATE.ingresos.filter(i=>{
+      if(cliente && i.cliente!==cliente) return false;
+      return matchPeriodo(parseFechaStr(i.fecha), periodoTipo, periodoValor);
+    });
+  }
+  if(tipoMov==='consumos' || tipoMov==='ambos'){
+    consumosFiltrados = STATE.solicitudes.filter(s=>{
+      if(s.estado!=='Recepcionada') return false;
+      if(cliente && s.cliente!==cliente) return false;
+      return matchPeriodo(parseFechaStr(s.fechaRecepcion || s.fecha), periodoTipo, periodoValor);
+    });
+  }
+  return { ingresosFiltrados, consumosFiltrados };
+}
+function describirFiltros(filtros){
+  const partes = [];
+  partes.push(filtros.cliente ? ('Cliente: '+filtros.cliente) : 'Cliente: Todos');
+  if(filtros.periodoTipo==='dia') partes.push('Fecha: '+(filtros.periodoValor||'—'));
+  else if(filtros.periodoTipo==='mes') partes.push('Mes: '+(filtros.periodoValor||'—'));
+  else if(filtros.periodoTipo==='anio') partes.push('Año: '+(filtros.periodoValor||'—'));
+  else partes.push('Periodo: Todo');
+  const tipoLabel = {ingresos:'Solo ingresos', consumos:'Solo consumos', ambos:'Ingresos y consumos'};
+  partes.push('Tipo: '+(tipoLabel[filtros.tipoMov]||filtros.tipoMov));
+  return partes.join(' &middot; ');
+}
+function renderReportes(){
+  const clientes = clientesUnicos();
+  return `<div class="panel"><h2>Generador de reportes</h2>
+    <div class="desc">Filtra por cliente, periodo y tipo de movimiento, luego genera el reporte.</div>
+    <form id="formReporte"><div class="grid">
+      <div><label>Cliente</label><select name="cliente">
+        <option value="">Todos los clientes</option>
+        ${clientes.map(c=>`<option value="${c}">${c}</option>`).join('')}
+      </select></div>
+      <div><label>Periodo</label><select name="periodoTipo" id="repPeriodoTipo">
+        <option value="dia">Por día</option>
+        <option value="mes">Por mes</option>
+        <option value="anio">Por año</option>
+        <option value="todos">Todo el periodo (sin filtro)</option>
+      </select></div>
+      <div id="repPeriodoValorWrap"><label>Fecha</label><input type="date" name="periodoValor" id="repPeriodoValor"></div>
+      <div><label>Tipo de movimiento</label><select name="tipoMov">
+        <option value="ambos">Ingresos y consumos</option>
+        <option value="ingresos">Solo ingresos</option>
+        <option value="consumos">Solo consumos</option>
+      </select></div>
+    </div><div class="actions"><button class="btn" type="submit">Generar reporte</button></div></form></div>
+    <div id="reporteResultado"></div>`;
+}
+function tablaReporteIngresos(rows){
+  if(!rows.length) return '<div class="empty">Sin ingresos en el periodo seleccionado.</div>';
+  return `<table><thead><tr><th>Fecha</th><th>Correlativo</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Cantidad</th><th>Guía</th></tr></thead>
+    <tbody>${rows.map(i=>`<tr><td>${i.fecha}</td><td class="mono">${i.correlativo}</td><td>${i.cliente}</td><td>${i.tipo}</td><td class="mono">${i.medida}</td><td class="mono">${i.cantidad}</td><td class="mono">${i.guia}</td></tr>`).join('')}</tbody></table>`;
+}
+function tablaReporteConsumos(rows){
+  if(!rows.length) return '<div class="empty">Sin consumos en el periodo seleccionado.</div>';
+  return `<table><thead><tr><th>Fecha recepción</th><th>Correlativo</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Cantidad</th><th>Solicitante</th></tr></thead>
+    <tbody>${rows.map(s=>`<tr><td>${s.fechaRecepcion||'—'}</td><td class="mono">${s.correlativo}</td><td>${s.cliente}</td><td>${s.tipo}</td><td class="mono">${s.medida}</td><td class="mono">${s.cantidadRecibida??s.cantidad}</td><td>${s.solicitante}</td></tr>`).join('')}</tbody></table>`;
+}
+function renderReporteResultado(data, filtros){
+  const { ingresosFiltrados, consumosFiltrados } = data;
+  const totalIngresos = ingresosFiltrados.reduce((a,i)=>a+(Number(i.cantidad)||0),0);
+  const totalConsumos = consumosFiltrados.reduce((a,s)=>a+(Number(s.cantidadRecibida??s.cantidad)||0),0);
+  let html = `<div class="panel"><div class="toolbar"><h2 style="margin:0">Resultado del reporte</h2>
+    <button class="btn secondary" id="btnImprimirReporte">Imprimir / exportar PDF</button></div>
+    <div class="desc">${describirFiltros(filtros)}</div>`;
+  if(filtros.tipoMov!=='consumos'){
+    html += `<h3 style="font-family:var(--disp);font-size:14px;margin:14px 0 8px 0;color:var(--amber-ink)">Ingresos (${ingresosFiltrados.length} · total ${totalIngresos} unid.)</h3>${tablaReporteIngresos(ingresosFiltrados)}`;
+  }
+  if(filtros.tipoMov!=='ingresos'){
+    html += `<h3 style="font-family:var(--disp);font-size:14px;margin:14px 0 8px 0;color:var(--amber-ink)">Consumos (${consumosFiltrados.length} · total ${totalConsumos} unid.)</h3>${tablaReporteConsumos(consumosFiltrados)}`;
+  }
+  if(filtros.tipoMov==='ambos'){
+    html += `<p class="desc" style="margin-top:14px"><b>Balance neto del periodo:</b> ${totalIngresos-totalConsumos} unid. (ingresos − consumos)</p>`;
+  }
+  html += `</div>`;
+  return html;
+}
+function imprimirReporte(filtros, data){
+  const { ingresosFiltrados, consumosFiltrados } = data;
+  const totalIngresos = ingresosFiltrados.reduce((a,i)=>a+(Number(i.cantidad)||0),0);
+  const totalConsumos = consumosFiltrados.reduce((a,s)=>a+(Number(s.cantidadRecibida??s.cantidad)||0),0);
+  let body = `<h1>REPORTE DE PARIHUELAS</h1><p class="meta">${describirFiltros(filtros)}</p><p class="meta"><b>Generado:</b> ${fechaHoy()}</p>`;
+  if(filtros.tipoMov!=='consumos'){
+    body += `<h2 style="font-size:14px;margin-top:20px;">Ingresos (${ingresosFiltrados.length} · total ${totalIngresos} unid.)</h2>`;
+    body += ingresosFiltrados.length ? `<table><tr><th>Fecha</th><th>Correlativo</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Cantidad</th><th>Guía</th></tr>
+      ${ingresosFiltrados.map(i=>`<tr><td>${i.fecha}</td><td>${i.correlativo}</td><td>${i.cliente}</td><td>${i.tipo}</td><td>${i.medida}</td><td>${i.cantidad}</td><td>${i.guia}</td></tr>`).join('')}</table>` : '<p>Sin registros.</p>';
+  }
+  if(filtros.tipoMov!=='ingresos'){
+    body += `<h2 style="font-size:14px;margin-top:20px;">Consumos (${consumosFiltrados.length} · total ${totalConsumos} unid.)</h2>`;
+    body += consumosFiltrados.length ? `<table><tr><th>Fecha recepción</th><th>Correlativo</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Cantidad</th><th>Solicitante</th></tr>
+      ${consumosFiltrados.map(s=>`<tr><td>${s.fechaRecepcion||'—'}</td><td>${s.correlativo}</td><td>${s.cliente}</td><td>${s.tipo}</td><td>${s.medida}</td><td>${s.cantidadRecibida??s.cantidad}</td><td>${s.solicitante}</td></tr>`).join('')}</table>` : '<p>Sin registros.</p>';
+  }
+  if(filtros.tipoMov==='ambos'){ body += `<p class="meta"><b>Balance neto:</b> ${totalIngresos-totalConsumos} unid. (ingresos − consumos)</p>`; }
+  printWindow('Reporte de parihuelas', body);
+}
+function bindReportes(){
+  const f = document.getElementById('formReporte'); if(!f) return;
+  const selPeriodoTipo = document.getElementById('repPeriodoTipo');
+  const wrapValor = document.getElementById('repPeriodoValorWrap');
+  function refreshPeriodoInput(){
+    const tipo = selPeriodoTipo.value;
+    if(tipo==='dia') wrapValor.innerHTML = `<label>Fecha</label><input type="date" name="periodoValor" id="repPeriodoValor">`;
+    else if(tipo==='mes') wrapValor.innerHTML = `<label>Mes</label><input type="month" name="periodoValor" id="repPeriodoValor">`;
+    else if(tipo==='anio') wrapValor.innerHTML = `<label>Año</label><input type="number" name="periodoValor" id="repPeriodoValor" min="2000" max="2100" placeholder="Ej: 2026">`;
+    else wrapValor.innerHTML = `<label>Periodo</label><input type="text" id="repPeriodoValor" disabled placeholder="Todo el historial">`;
+  }
+  selPeriodoTipo.addEventListener('change', refreshPeriodoInput);
+  refreshPeriodoInput();
+  f.addEventListener('submit', e=>{
+    e.preventDefault();
+    const fd = new FormData(f);
+    const filtros = {
+      cliente: fd.get('cliente') || '',
+      periodoTipo: fd.get('periodoTipo'),
+      periodoValor: fd.get('periodoValor') || '',
+      tipoMov: fd.get('tipoMov')
+    };
+    const data = generarReporte(filtros);
+    const resultado = document.getElementById('reporteResultado');
+    resultado.innerHTML = renderReporteResultado(data, filtros);
+    const btnImp = document.getElementById('btnImprimirReporte');
+    if(btnImp) btnImp.addEventListener('click', ()=>imprimirReporte(filtros, data));
+  });
+}
+
 function renderDBMaestra(){
   return `<div class="panel"><h2>Base de datos maestra</h2><div class="desc">Control total: edita o elimina cualquier registro. Los cambios se aplican de inmediato para todos.</div>
     <div class="actions"><button class="btn secondary" id="btnSembrar">Cargar stock inicial (una sola vez)</button></div></div>
@@ -684,6 +841,7 @@ function render(){
       document.getElementById('btnImprimirPend2').addEventListener('click', imprimirSolicitudesPendientes);
       bindTablaSolicitudes(); break;
     case 'ingresos': content.innerHTML=renderMovs(); bindTablaIngresos(); break;
+    case 'reportes': content.innerHTML=renderReportes(); bindReportes(); break;
     case 'db': content.innerHTML=renderDBMaestra(); bindDBMaestra();
       document.getElementById('btnSembrar').addEventListener('click', sembrarStockInicial); break;
   }
