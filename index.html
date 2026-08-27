@@ -120,23 +120,23 @@ const db = firebase.firestore();
 
 /* ============================= CONTRASEÑAS POR ÁREA ============================= */
 const ROLE_PASSWORDS = {
-  sol_pluspack: 'pluspack2026',
   sol_synergia: 'synergia2026',
   sw_produccion:'produccion2026',
   despachos:    'despachos2026',
   picadora:     'picadora2026',
   supervision:  'supervision2026',
+  ventas:       'ventas2026',
   maestro:      'maestro2026'
 };
 
 /* ============================= CONFIG APP ============================= */
 const ROLES = {
-  sol_pluspack: { label:'Solicitante · Pluspack', solicitanteFijo:'Pluspack', tabs:['nueva','mis','stock'] },
   sol_synergia: { label:'Solicitante · Synergia', solicitanteFijo:'Synergia', tabs:['nueva','mis','stock'] },
   sw_produccion:{ label:'SW Producción',          solicitanteOpciones:['HYCORR1','Planchas','Particiones','HYCORR2','MOSCA MESSERSI'], tabs:['nueva','mis','stock'] },
   despachos:    { label:'Despachos',              solicitanteFijo:'Despachos', tabs:['solicitar','mis','movs','stock'] },
   picadora:     { label:'Op. Picadora',           tabs:['stockfis','recepcion','solicitudes','ingresos'] },
   supervision:  { label:'Supervisión',            tabs:['solicitudes','ingresos','stock'] },
+  ventas:       { label:'Ventas',                 tabs:['stock'] },
   maestro:      { label:'Usuario Maestro',        tabs:['solicitar','ingresar','solicitudes','ingresos','stock','stockfis','recepcion','db'] },
 };
 const TAB_LABEL = {
@@ -469,7 +469,7 @@ function tablaStock(rows, editableFisico){
 function tagEstado(s){ const map={Pendiente:'pend',Recepcionada:'ok',Cancelada:'cancel',Discrepancia:'warn'}; return `<span class="tag ${map[s]||'pend'}">${s}</span>`; }
 
 function renderNuevaSolicitud(solicitanteFijo, solicitanteOpciones){
-  const opciones = solicitanteOpciones || ['Pluspack','Synergia','Despachos'];
+  const opciones = solicitanteOpciones || ['Synergia','Despachos'];
   const permiteNueva = !solicitanteFijo && !!solicitanteOpciones;
   return `<div class="panel"><h2>Nueva solicitud de parihuelas</h2><div class="desc">Fecha y correlativo se generan automáticamente al guardar. Elige el cliente y luego el tipo/medida correspondiente.</div>
     <form id="formSolicitud"><div class="grid">
@@ -570,7 +570,7 @@ function renderSolicitudesEditable(){
       <td><input data-f="medida" value="${s.medida}" class="mono" style="min-width:100px"></td>
       <td><input data-f="cantidad" type="number" value="${s.cantidad}" style="width:70px"></td>
       <td><input data-f="cantidadRecibida" type="number" value="${s.cantidadRecibida??''}" style="width:70px"></td>
-      <td><select data-f="solicitante">${['Pluspack','Synergia','Despachos'].map(o=>`<option ${s.solicitante===o?'selected':''}>${o}</option>`).join('')}</select></td>
+      <td><select data-f="solicitante">${['Synergia','Despachos'].map(o=>`<option ${s.solicitante===o?'selected':''}>${o}</option>`).join('')}</select></td>
       <td><select data-f="estado">${SOL_ESTADOS.map(e=>`<option ${s.estado===e?'selected':''}>${e}</option>`).join('')}</select></td>
       <td style="white-space:nowrap"><button class="btn secondary small" data-guardar-sol="${s.correlativo}">Guardar</button> <span class="icon-x" data-del-sol="${s.correlativo}" title="Eliminar">×</span></td>
     </tr>`).join('')}</tbody></table>` : '<div class="empty">No hay solicitudes registradas.</div>'}</div>`;
