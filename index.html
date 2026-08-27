@@ -132,20 +132,20 @@ const ROLE_PASSWORDS = {
 
 /* ============================= CONFIG APP ============================= */
 const ROLES = {
-  sol_synergia: { label:'Solicitante · Synergia', solicitanteFijo:'Synergia', tabs:['nueva','mis','stock'] },
-  sw_produccion:{ label:'SW Producción',          solicitanteOpciones:['HYCORR1','Planchas','Particiones','HYCORR2','MOSCA MESSERSI'], tabs:['nueva','mis','stock'] },
+  sol_synergia: { label:'Solicitante · Synergia', solicitanteFijo:'Synergia', tabs:['nueva','mis','stock','devoluciones'] },
+  sw_produccion:{ label:'SW Producción',          solicitanteOpciones:['HYCORR1','Planchas','Particiones','HYCORR2','MOSCA MESSERSI'], tabs:['nueva','mis','stock','devoluciones'] },
   despachos:    { label:'Despachos',              solicitanteFijo:'Despachos', tabs:['solicitar','mis','movs','stock'] },
   picadora:     { label:'Op. Picadora',           tabs:['stockfis','recepcion','solicitudes','ingresos'] },
-  supervision:  { label:'Supervisión',            tabs:['solicitudes','ingresos','stock'] },
+  supervision:  { label:'Supervisión',            tabs:['solicitudes','ingresos','stock','devoluciones'] },
   ventas:       { label:'Ventas',                 tabs:['stock','ingresos','solicitudes','reportes'] },
-  maestro:      { label:'Usuario Maestro',        tabs:['solicitar','ingresar','solicitudes','ingresos','stock','stockfis','recepcion','reportes','db'] },
+  maestro:      { label:'Usuario Maestro',        tabs:['solicitar','ingresar','solicitudes','ingresos','stock','stockfis','recepcion','reportes','devoluciones','db'] },
 };
 const TAB_LABEL = {
   nueva:'Nueva solicitud', mis:'Mis solicitudes', stock:'Stock disponible',
   solicitar:'Solicitar parihuelas', ingresar:'Ingresar parihuelas', movs:'Mis movimientos',
   stockfis:'Stock físico', recepcion:'Recepción de correlativos',
   solicitudes:'Solicitudes', ingresos:'Ingresos', db:'Base de datos maestra',
-  reportes:'Generador de reportes'
+  reportes:'Generador de reportes', devoluciones:'Devoluciones'
 };
 
 const STOCK_INICIAL_SEED = [
@@ -170,7 +170,7 @@ const STOCK_INICIAL_SEED = [
 
 let STATE = {
   role:null, activeTab:null,
-  solicitudes:[], ingresos:[], stock:[], stockFisico:[], stockInicial:[], recepciones:[], ajustes:[], inventarios:[]
+  solicitudes:[], ingresos:[], stock:[], stockFisico:[], stockInicial:[], recepciones:[], ajustes:[], inventarios:[], devoluciones:[]
 };
 let unsubs = [];
 
@@ -233,14 +233,18 @@ function attachListeners(){
   unsubs.push(db.collection('inventarios').orderBy('fechaOrden','desc').onSnapshot(snap=>{
     STATE.inventarios = snap.docs.map(d=>({id:d.id, ...d.data()})); render();
   }, ()=>setConn(false)));
+  unsubs.push(db.collection('devoluciones').orderBy('fechaOrden','desc').onSnapshot(snap=>{
+    STATE.devoluciones = snap.docs.map(d=>d.data()); render();
+  }, ()=>setConn(false)));
 }
 
 async function nextCorrelativo(tipo){
   const ref = db.collection('meta').doc('counters');
   return db.runTransaction(async t=>{
     const doc = await t.get(ref);
-    const data = doc.exists? doc.data() : {sol:0, ing:0};
+    const data = doc.exists? doc.data() : {sol:0, ing:0, dev:0};
     if(tipo==='SOL'){ const v=(data.sol||0)+1; t.set(ref,{...data, sol:v},{merge:true}); return 'SOL-'+pad(v,5); }
+    if(tipo==='DEV'){ const v=(data.dev||0)+1; t.set(ref,{...data, dev:v},{merge:true}); return 'DEV-'+pad(v,5); }
     const v=(data.ing||0)+1; t.set(ref,{...data, ing:v},{merge:true}); return 'ING-'+pad(v,4);
   });
 }
@@ -315,6 +319,53 @@ async function recepcionarCorrelativo(correlativo, cantidadRecibida){
   await db.collection('recepciones').add(log);
   return log;
 }
+
+/* ============================= DEVOLUCIONES ============================= */
+const MOTIVOS_DEVOLUCION = [
+  'Parihuela en mal estado',
+  'Sobrante de producción',
+  'Pedido cancelado',
+  'Error de solicitud',
+  'Cambio de pedido',
+  'Fin de turno',
+  'Otros'
+];
+async function createDevolucion(data){
+  const correlativo = await nextCorrelativo('DEV');
+  const registro = { correlativo, fecha:fechaHoy(), fechaOrden:Date.now(),
+    correlativoConsumo: (data.correlativoConsumo||'').trim().toUpperCase() || null,
+    cliente:data.cliente, tipo:data.tipo, medida:data.medida, cantidad:Number(data.cantidad),
+    motivo:data.motivo, creadoPor:ROLES[STATE.role].label,
+    estado:'Pendiente', cantidadConfirmada:null, fechaValidacion:null, ingresoGenerado:null };
+  await db.collection('devoluciones').doc(correlativo).set(registro);
+  toast('Devolución '+correlativo+' generada');
+  return registro;
+}
+async function validarDevolucion(correlativo, cantidadConfirmada){
+  correlativo = correlativo.trim().toUpperCase();
+  const ref = db.collection('devoluciones').doc(correlativo);
+  const doc = await ref.get();
+  const log = { fecha:fechaHoy(), fechaOrden:Date.now(), correlativo, resultado:'', detalle:'' };
+  if(!doc.exists){ log.resultado='No encontrado'; log.detalle='No existe una devolución con ese correlativo'; }
+  else{
+    const d = doc.data();
+    if(d.estado==='Validada'){ log.resultado='Duplicado'; log.detalle='Ya fue validada el '+d.fechaValidacion+' (ingreso '+d.ingresoGenerado+')'; }
+    else{
+      const cantDev = Number(d.cantidad), cantConf = Number(cantidadConfirmada)||cantDev;
+      const correlativoIngreso = await nextCorrelativo('ING');
+      await db.collection('ingresos').doc(correlativoIngreso).set({
+        correlativo: correlativoIngreso, fecha:fechaHoy(), fechaOrden:Date.now(),
+        cliente:d.cliente, tipo:d.tipo, medida:d.medida, cantidad:cantConf,
+        ingresante:'Devolución', guia:'Devolución '+d.correlativo+' — '+d.motivo, origenDevolucion:d.correlativo
+      });
+      await ref.update({ estado:'Validada', cantidadConfirmada:cantConf, fechaValidacion:fechaHoy(), ingresoGenerado:correlativoIngreso });
+      if(cantConf===cantDev){ log.resultado='OK'; log.detalle=cantConf+' unid. reingresadas a stock como '+correlativoIngreso; }
+      else{ log.resultado='Discrepancia'; log.detalle='Declarado '+cantDev+' / Confirmado físicamente '+cantConf+' — ingreso '+correlativoIngreso; }
+    }
+  }
+  await db.collection('recepciones').add(log);
+  return log;
+}
 async function guardarYSincerarFisico(){
   const inputs = document.querySelectorAll('[data-fisico]');
   let cambios = 0;
@@ -379,6 +430,15 @@ function pdfIngreso(i){
   printWindow('Ingreso '+i.correlativo, `<h1>COMPROBANTE DE INGRESO — ${i.correlativo}</h1>
     <p class="meta"><b>Fecha:</b> ${i.fecha}</p><p class="meta"><b>Cliente:</b> ${i.cliente}</p><p class="meta"><b>Guía N°:</b> ${i.guia}</p>
     <table><tr><th>Tipo</th><th>Medidas</th><th>Cantidad</th></tr><tr><td>${i.tipo}</td><td>${i.medida}</td><td>${i.cantidad}</td></tr></table>`);
+}
+function pdfDevolucion(d){
+  printWindow('Devolución '+d.correlativo, `<h1>VALE DE DEVOLUCIÓN DE PARIHUELAS — ${d.correlativo}</h1>
+    <p class="meta"><b>Fecha:</b> ${d.fecha}</p><p class="meta"><b>Cliente:</b> ${d.cliente}</p>
+    <p class="meta"><b>Correlativo de consumo referenciado:</b> ${d.correlativoConsumo||'—'}</p>
+    <p class="meta"><b>Motivo:</b> ${d.motivo}</p><p class="meta"><b>Generado por:</b> ${d.creadoPor}</p>
+    <table><tr><th>Tipo</th><th>Medidas</th><th>Cantidad de vuelta</th><th>Estado</th></tr>
+    <tr><td>${d.tipo}</td><td>${d.medida}</td><td>${d.cantidad}</td><td>${d.estado}</td></tr></table>
+    <div class="signbox"><div>Entregado por</div><div>Validado por (picadora)</div></div>`);
 }
 function imprimirHojaInventario(){
   const rows = STATE.stock.map(r=>`<tr><td>${r.cliente}</td><td>${r.tipo}</td><td>${r.medida}</td><td>${r.stockActual}</td><td>&nbsp;</td></tr>`).join('');
@@ -524,8 +584,8 @@ function renderIngresar(){
 }
 function renderMovs(){
   return `<div class="panel"><div class="toolbar"><h2 style="margin:0">Ingresos registrados</h2><span class="stats">${STATE.ingresos.length} registro(s)</span></div>
-    ${STATE.ingresos.length?`<table><thead><tr><th>Fecha</th><th>Correlativo</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Cant.</th><th>Guía</th><th>PDF</th></tr></thead>
-    <tbody>${STATE.ingresos.map(i=>`<tr><td>${i.fecha}</td><td class="mono">${i.correlativo}</td><td>${i.cliente}</td><td>${i.tipo}</td><td class="mono">${i.medida}</td><td class="mono">${i.cantidad}</td><td class="mono">${i.guia}</td>
+    ${STATE.ingresos.length?`<table><thead><tr><th>Fecha</th><th>Correlativo</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Cant.</th><th>Origen</th><th>Guía</th><th>PDF</th></tr></thead>
+    <tbody>${STATE.ingresos.map(i=>`<tr><td>${i.fecha}</td><td class="mono">${i.correlativo}</td><td>${i.cliente}</td><td>${i.tipo}</td><td class="mono">${i.medida}</td><td class="mono">${i.cantidad}</td><td>${i.ingresante||'—'}</td><td class="mono">${i.guia}</td>
       <td><button class="btn secondary small" data-pdfing="${i.correlativo}">Ver</button></td></tr>`).join('')}</tbody></table>`:'<div class="empty">No hay ingresos registrados.</div>'}</div>`;
 }
 function renderStockFisicoPicadora(){
@@ -535,12 +595,12 @@ function renderStockFisicoPicadora(){
     <div class="desc">Ingresa el conteo físico por línea. Al guardar, el "Stock actual" del sistema se ajusta para coincidir con lo contado, y queda registrado en la Base de datos maestra con la diferencia en cantidad y porcentaje.</div>${tablaStock(STATE.stock,true)}</div>`;
 }
 function renderRecepcionPicadora(){
-  return `<div class="panel"><h2>Recepción de correlativos</h2><div class="desc">Ingresa el correlativo de la hoja que trae el montacarguista para validarlo contra el sistema.</div>
+  return `<div class="panel"><h2>Recepción / validación de correlativos</h2><div class="desc">Ingresa el correlativo de la hoja que trae el montacarguista: una solicitud (SOL-00001) o una devolución (DEV-00001). El sistema detecta el tipo automáticamente y valida contra lo registrado.</div>
     <form id="formRecepcion" class="grid" style="align-items:end">
       <div><label>Fecha</label><input type="text" value="${fechaHoy()}" disabled></div>
-      <div><label>Correlativo recibido</label><input name="correlativo" required placeholder="SOL-00001" style="text-transform:uppercase"></div>
-      <div><label>Cantidad física recibida</label><input name="cantidadRecibida" type="number" min="0" placeholder="Opcional"></div>
-      <div><button class="btn" type="submit">Registrar recepción</button></div>
+      <div><label>Correlativo recibido</label><input name="correlativo" required placeholder="SOL-00001 o DEV-00001" style="text-transform:uppercase"></div>
+      <div><label>Cantidad física confirmada</label><input name="cantidadRecibida" type="number" min="0" placeholder="Opcional"></div>
+      <div><button class="btn" type="submit">Registrar</button></div>
     </form></div>
     <div class="panel"><div class="toolbar"><h2 style="margin:0">Historial de recepciones</h2><span class="stats">${STATE.recepciones.length} registro(s)</span></div>
     ${STATE.recepciones.length?`<table><thead><tr><th>Fecha</th><th>Correlativo</th><th>Resultado</th><th>Detalle</th></tr></thead>
@@ -581,10 +641,11 @@ function renderIngresosEditable(){
   const rows = STATE.ingresos;
   return `<div class="panel"><div class="toolbar"><h2 style="margin:0">Ingresos — edición total</h2><span class="stats">${rows.length} registro(s)</span></div>
     <div class="desc">Cambia cualquier campo y presiona "Guardar" en esa fila. El botón × elimina el registro por completo (no se puede deshacer).</div>
-    ${rows.length? `<table><thead><tr><th>Correlativo</th><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Cant.</th><th>Guía</th><th></th></tr></thead>
+    ${rows.length? `<table><thead><tr><th>Correlativo</th><th>Fecha</th><th>Origen</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Cant.</th><th>Guía</th><th></th></tr></thead>
     <tbody>${rows.map(i=>`<tr data-ing="${i.correlativo}">
       <td class="mono">${i.correlativo}</td>
       <td>${i.fecha}</td>
+      <td>${i.ingresante||'—'}</td>
       <td><input data-f="cliente" value="${i.cliente}" style="min-width:140px"></td>
       <td><input data-f="tipo" value="${i.tipo}" style="min-width:90px"></td>
       <td><input data-f="medida" value="${i.medida}" class="mono" style="min-width:100px"></td>
@@ -789,6 +850,77 @@ function bindReportes(){
   });
 }
 
+/* ============================= UI DEVOLUCIONES ============================= */
+function tagEstadoDev(s){ const map={Pendiente:'pend',Validada:'ok',Discrepancia:'warn'}; return `<span class="tag ${map[s]||'pend'}">${s}</span>`; }
+function renderTablaDevoluciones(){
+  const rows = STATE.devoluciones;
+  return `<div class="panel"><div class="toolbar"><h2 style="margin:0">Devoluciones registradas</h2><span class="stats">${rows.length} registro(s)</span></div>
+    ${rows.length? `<table><thead><tr><th>Fecha</th><th>Correlativo</th><th>Consumo ref.</th><th>Cliente</th><th>Tipo</th><th>Medidas</th><th>Cant.</th><th>Motivo</th><th>Estado</th><th>PDF</th></tr></thead>
+    <tbody>${rows.map(d=>`<tr><td>${d.fecha}</td><td class="mono">${d.correlativo}</td><td class="mono">${d.correlativoConsumo||'—'}</td><td>${d.cliente}</td><td>${d.tipo}</td><td class="mono">${d.medida}</td><td class="mono">${d.cantidad}</td><td>${d.motivo}</td><td>${tagEstadoDev(d.estado)}</td>
+      <td><button class="btn secondary small" data-pdfdev="${d.correlativo}">Ver PDF</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty">No hay devoluciones registradas.</div>'}</div>`;
+}
+function renderDevoluciones(){
+  return `<div class="panel"><h2>Registrar devolución de parihuelas</h2>
+    <div class="desc">Registra la devolución de parihuelas que ya habían salido del patio por una solicitud consumida (recepcionada), y que ahora regresan. El correlativo de devolución (DEV-XXXXX) deberá ser validado por Picadora para que el stock se actualice y quede contabilizado como ingreso.</div>
+    <form id="formDevolucion"><div class="grid">
+      <div><label>Fecha</label><input type="text" value="${fechaHoy()}" disabled></div>
+      <div><label>Correlativo devolución</label><input type="text" value="Se genera al guardar" disabled></div>
+      <div><label>Correlativo de consumo ingresado</label><input type="text" id="devCorrelativoConsumo" placeholder="Ej: SOL-00001" style="text-transform:uppercase"></div>
+      <div id="devConsumoInfo" style="grid-column:1/-1;font-size:12.5px;min-height:16px"></div>
+      ${widgetClienteCombo('dev')}
+      <div><label>Cantidad de vuelta</label><input name="cantidad" type="number" min="1" required></div>
+      <div><label>Motivo de devolución</label><select name="motivo" required>
+        <option value="">-- Selecciona un motivo --</option>
+        ${MOTIVOS_DEVOLUCION.map(m=>`<option value="${m}">${m}</option>`).join('')}
+      </select></div>
+    </div><div class="actions"><button class="btn" type="submit">Registrar devolución</button></div></form></div>
+    ${renderTablaDevoluciones()}`;
+}
+function bindFormDevolucion(){
+  const f = document.getElementById('formDevolucion'); if(!f) return;
+  const inpCorr = document.getElementById('devCorrelativoConsumo');
+  const infoEl = document.getElementById('devConsumoInfo');
+  const selCliente = document.getElementById('devCliente');
+  const selCombo = document.getElementById('devCombo');
+  function lookupConsumo(){
+    const cod = (inpCorr.value||'').trim().toUpperCase();
+    if(!cod){ infoEl.innerHTML=''; return; }
+    const s = STATE.solicitudes.find(x=>x.correlativo===cod);
+    if(!s){ infoEl.innerHTML = '<span style="color:var(--danger)">No se encontró ese correlativo. Puedes continuar y completar los datos manualmente.</span>'; return; }
+    if(s.estado!=='Recepcionada'){ infoEl.innerHTML = '<span style="color:var(--danger)">Esa solicitud existe pero aún no está Recepcionada (estado actual: '+s.estado+').</span>'; return; }
+    infoEl.innerHTML = '<span style="color:var(--success)">Encontrado — '+s.cliente+' · '+s.tipo+' — '+s.medida+' · '+(s.cantidadRecibida??s.cantidad)+' unid. consumidas</span>';
+    if(!selCliente || !selCombo) return;
+    if([...selCliente.options].some(o=>o.value===s.cliente)) selCliente.value = s.cliente;
+    else selCliente.value = '__nuevo__';
+    selCliente.dispatchEvent(new Event('change'));
+    setTimeout(()=>{
+      const cKey = comboKey(s.tipo, s.medida);
+      if([...selCombo.options].some(o=>o.value===cKey)){ selCombo.value = cKey; selCombo.dispatchEvent(new Event('change')); }
+      else{
+        selCombo.value = '__nuevo__'; selCombo.dispatchEvent(new Event('change'));
+        const tn=document.getElementById('devTipoNuevo'), mn=document.getElementById('devMedidaNuevo');
+        if(tn) tn.value = s.tipo; if(mn) mn.value = s.medida;
+      }
+    }, 0);
+  }
+  inpCorr.addEventListener('blur', lookupConsumo);
+  f.addEventListener('submit', async e=>{
+    e.preventDefault();
+    const fd = new FormData(f);
+    const {cliente, tipo, medida} = leerClienteCombo('dev');
+    if(!cliente || !tipo || !medida){ toast('Completa cliente, tipo y medida', true); return; }
+    const motivo = fd.get('motivo');
+    if(!motivo){ toast('Selecciona un motivo de devolución', true); return; }
+    await createDevolucion({ correlativoConsumo:inpCorr.value, cliente, tipo, medida, cantidad:fd.get('cantidad'), motivo });
+    f.reset(); infoEl.innerHTML=''; bindWidgetClienteCombo('dev');
+  });
+}
+function bindTablaDevoluciones(){
+  document.querySelectorAll('[data-pdfdev]').forEach(el=>el.addEventListener('click',()=>{
+    const d = STATE.devoluciones.find(x=>x.correlativo===el.dataset.pdfdev); if(d) pdfDevolucion(d);
+  }));
+}
+
 function renderDBMaestra(){
   return `<div class="panel"><h2>Base de datos maestra</h2><div class="desc">Control total: edita o elimina cualquier registro. Los cambios se aplican de inmediato para todos.</div>
     <div class="actions"><button class="btn secondary" id="btnSembrar">Cargar stock inicial (una sola vez)</button></div></div>
@@ -870,6 +1002,7 @@ function render(){
       bindTablaSolicitudes(); break;
     case 'ingresos': content.innerHTML=renderMovs(); bindTablaIngresos(); break;
     case 'reportes': content.innerHTML=renderReportes(); bindReportes(); break;
+    case 'devoluciones': content.innerHTML=renderDevoluciones(); bindFormDevolucion(); bindWidgetClienteCombo('dev'); bindTablaDevoluciones(); break;
     case 'db': content.innerHTML=renderDBMaestra(); bindDBMaestra();
       document.getElementById('btnSembrar').addEventListener('click', sembrarStockInicial); break;
   }
@@ -935,7 +1068,10 @@ function bindStockFisico(){
 function bindRecepcion(){
   const f=document.getElementById('formRecepcion'); if(!f) return;
   f.addEventListener('submit', async e=>{ e.preventDefault(); const fd=new FormData(f);
-    const log = await recepcionarCorrelativo(fd.get('correlativo'), fd.get('cantidadRecibida'));
+    const correlativo = (fd.get('correlativo')||'').trim().toUpperCase();
+    const log = correlativo.startsWith('DEV-')
+      ? await validarDevolucion(correlativo, fd.get('cantidadRecibida'))
+      : await recepcionarCorrelativo(correlativo, fd.get('cantidadRecibida'));
     if(log.resultado==='OK') toast('Recepción OK — '+log.detalle); else toast(log.resultado+': '+log.detalle, true);
     f.reset(); });
 }
