@@ -33,7 +33,8 @@
   nav.tabs button:hover{color:var(--ink);}
   nav.tabs button.active{color:var(--amber);border-bottom:2px solid var(--amber);}
   main{padding:22px;max-width:1280px;margin:0 auto;}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:20px;margin-bottom:20px;}
+  html,body{overflow-x:hidden;max-width:100%;}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:20px;margin-bottom:20px;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}
   .panel h2{font-family:var(--disp);font-size:16px;margin:0 0 4px 0;}
   .panel .desc{color:var(--muted);font-size:12.5px;margin-bottom:16px;}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;}
@@ -70,6 +71,25 @@
   .dot{width:8px;height:8px;border-radius:50%;background:var(--success);}
   .dot.off{background:var(--danger);}
   footer.note{color:var(--muted);font-size:11.5px;text-align:center;padding:20px;border-top:1px solid var(--line);}
+  @media (max-width:640px){
+    header{padding:10px 14px;}
+    .brand h1{font-size:15px;}
+    .brand .mark{width:32px;height:32px;font-size:11px;}
+    nav.tabs{padding:0 10px;}
+    nav.tabs button{padding:10px 12px;font-size:12.5px;}
+    main{padding:12px;}
+    .panel{padding:14px;}
+    .grid{grid-template-columns:1fr;gap:10px;}
+    thead th,tbody td{padding:7px 8px;font-size:12px;}
+    button.btn:not(.small){width:100%;text-align:center;}
+    .actions{flex-direction:column;}
+    .actions button{width:100%;}
+    .toolbar{flex-direction:column;align-items:flex-start;}
+    .toolbar > *{width:100%;}
+    .toolbar .actions{margin:0;}
+    #loginScreen{margin:40px auto;padding:20px;max-width:92%;}
+    .connbadge #connText{display:none;}
+  }
 </style>
 </head>
 <body>
